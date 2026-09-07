@@ -53,6 +53,11 @@ def inside():
             config = root / "home/.jcode/config.toml"
             wait_for(lambda: "herdr-jcode" in config.read_text())
             installed = config.read_text()
+            # Verify all four lifecycle hooks are configured using inline TOML parsing
+            # (no external toml module in the isolated test environment).
+            for event in ["session_start", "turn_start", "turn_end", "session_end"]:
+                assert f"{event} =" in installed or f'{event} =' in installed, f"missing hook {event}"
+            records.append({"four_hook_config_verified": True})
             call("plugin", "action", "invoke", "setup", "--plugin", ID)
             time.sleep(0.5)
             assert config.read_text() == installed
@@ -77,10 +82,24 @@ def inside():
             evidence = [json.loads(line) for line in (root / "witness.jsonl").read_text().splitlines()]
             assert len({x["pane"] for x in evidence}) == 2, evidence
             assert len({x["session"] for x in evidence}) == 2, evidence
+            # Verify lifecycle state via real public Herdr API.
             traffic = [json.loads(line) for line in (root / "traffic.jsonl").read_text().splitlines()]
-            assert sum(x["args"][:2] == ["pane", "get"] for x in traffic) >= 2, traffic
+            pane_get_calls = sum(x["args"][:2] == ["pane", "get"] for x in traffic)
+            assert pane_get_calls >= 2, traffic
+            report_agent = [x for x in traffic if x["args"][1] == "report-agent"]
+            assert len(report_agent) >= 1, f"no lifecycle report-agent calls in {traffic}"
+            # Native session identity should NOT be sent to stock Herdr.
             assert not any("report-agent-session" in x["args"] for x in traffic), traffic
-            records.append({"real_hook_identity": evidence, "forwarded_real_cli_calls": len(traffic)})
+            # Query real pane status via public API.
+            primary_status = call("pane", "get", pane)
+            pane_info = primary_status["result"]["pane"]
+            assert pane_info.get("agent") == "jcode", f"expected agent=jcode, got {pane_info}"
+            records.append({
+                "real_hook_identity": evidence,
+                "lifecycle_agent_status": pane_info.get("agent_status"),
+                "report_agent_calls": len(report_agent),
+                "forwarded_real_cli_calls": len(traffic),
+            })
             call("plugin", "disable", ID)
             report_env = dict(os.environ, JCODE_HOOK_EVENT="session_start", JCODE_HOOK_SOURCE="create", JCODE_HOOK_SESSION_ID="disabled-probe")
             report = subprocess.run([str(PLUGIN), "report"], env=report_env, capture_output=True, text=True, timeout=10)

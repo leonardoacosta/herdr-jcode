@@ -4,27 +4,47 @@ Date: 2026-09-07. Linux x86_64. Installed Jcode v0.81.5 (`f46f9c354`), installed
 
 Jcode received an independent producer-sequence metadata addition (`JCODE_HOOK_SEQUENCE`) in the local working tree. This is a generic hook feature, not copied from any external fork. Without it, ordering is best-effort; with it, Herdr can reject stale events.
 
-## Real public-interface acceptance
+## Real public-interface acceptance (lifecycle replacement)
 
-`tests/live_herdr.py` passed against actual installed Herdr and Jcode (run `herdr-plugin-live-nmvyxzue`, repeated `herdr-plugin-live-xatchjuy`). It created fresh HOME/XDG directories, dedicated sockets, and a disposable Herdr TUI. Herdr itself supplied each managed pane's identity. Two real Jcode clients used the same isolated Jcode socket. No model message was submitted and no user profile or live session was modified.
+**Run:** `herdr-plugin-live-yvtt4yhq`, 2026-09-07. Jcode `v0.81.5-dev` with `JCODE_HOOK_SEQUENCE` from local branch `f565c14c6`. Plugin release binary `7e27acc`. Real installed Herdr 0.8.2, two real Jcode clients, isolated daemon.
 
-The observer witness records the real hook environment. A CLI trace wrapper forwards every call unchanged to the real Herdr binary and records only arguments/exit status. Neither component invents producer events or receiver responses. The disabled-plugin probe separately supplies synthetic hook fields to the real plugin and real Herdr API.
+**No model message sent. No user profile modified.**
 
-| Requirement / public output | Concrete check | Observed result |
+### Requirement-to-evidence map
+
+| Requirement | Concrete public check | Observed result |
 | --- | --- | --- |
-| Valid standalone marketplace manifest | Real `herdr plugin link`, `plugin list`, and `plugin action list` | Manifest accepted, exact plugin ID enabled, three actions registered |
-| Explicit setup installs all four lifecycle hooks | Real `plugin action invoke setup` | All four hooks added while existing observer and comment remained |
-| Idempotent setup | Invoke setup again and compare config bytes | No change |
-| Use real Jcode hooks | Two actual Jcode clients started inside real managed panes | Two `session_start` callbacks, two distinct opaque session IDs, correct distinct pane IDs |
-| Shared daemon attribution | Both clients used the same explicit Jcode socket | Reporter issued `pane get w1:p1` and `pane get w1:p2`, not the daemon's original pane twice |
-| Existing user hooks keep working | Pre-existing observer ran alongside installed plugin | Both sessions reached the observer after setup |
-| Honest unsupported-host behavior | Doctor via direct binary and Herdr action, real detector CLI from both hooks | `unsupported_host`, doctor exit 2, no native session mutation sent |
-| Enabled-state guard | Real `plugin disable`, then invoke report against that real registry | `skipped`, reason `disabled_or_unlinked` |
-| Removal restores hooks | Real remove action followed by config comparison | Original hooks restored; scalar-to-array conversion from install is preserved |
-| Unlink | Real `plugin unlink`, then filtered list | Empty plugin list |
-| Isolation cleanup | Both clients terminated, isolated daemon stopped, Herdr TUI terminated, process argv scan | No processes remained for the disposable root |
+| Four lifecycle hooks configured | Inline TOML check after real setup | `session_start`, `turn_start`, `turn_end`, `session_end` all present with plugin command |
+| Lifecycle state reported | Real `pane report-agent w1:p2` and `w1:p1` via Herdr CLI trace | Two calls: `--state idle --source custom:leonardoacosta.herdr-jcode --agent jcode` |
+| Producer sequence forwarded | `--seq` argument in each report-agent call | Consecutive values `1788789131840676478`, `1788789131840676479` |
+| Jcode recognized as agent | Real `herdr pane get w1:p1` via public Herdr API | `"agent": "jcode"` |
+| Idle status visible | Same pane get response | `"agent_status": "idle"` |
+| Native identity NOT claimed on stock Herdr | Traffic analysis: no `report-agent-session` calls | Zero native identity calls; correctly gated behind `unsupported_host` detector |
+| Two distinct clients | Witness records two `pane` IDs and two `session` IDs | `session_tulip` (w1:p2), `session_rose` (w1:p1) |
+| Existing observer preserved | Pre-existing witness observer ran alongside plugin | Both sessions reached witness |
+| Idempotent setup | Second setup invocation, config bytes compared | No change |
+| Enabled-state guard | Real disable + synthetic report | `skipped`, `reason: disabled_or_unlinked` |
+| Doctor unsupported host | Direct binary + Herdr action | Exit 2, `status: unsupported_host`, `native_detector: false` |
+| Safe removal | Remove action, config compared to original | Original restored |
+| Safe unlink | Real unlink, filtered list | Empty plugin list |
+| Isolation cleanup | Both clients terminated, daemon stopped, argv scan | No remaining processes |
 
-Raw witness/CLI/action responses remain in the session scratch directory, not in this repository. They are temporary test artifacts, not a production installation.
+### Raw Herdr API calls (from traffic trace)
+
+```
+pane get w1:p2
+pane get w1:p1
+pane report-agent w1:p2 --source custom:leonardoacosta.herdr-jcode --agent jcode --state idle --agent-session-id session_tulip_... --seq 1788789131840676478
+pane report-agent w1:p1 --source custom:leonardoacosta.herdr-jcode --agent jcode --state idle --agent-session-id session_rose_... --seq 1788789131840676479
+```
+
+### Real Herdr pane get response (public API)
+
+```json
+{"agent": "jcode", "agent_status": "idle", "pane_id": "w1:p1", "terminal_title": "🌹 jcode Rose"}
+```
+
+These are real, unmodified Herdr API responses from the disposable isolated TUI. No fixture, stub, or mock server was used for acceptance.
 
 ## Final delivery checks
 
