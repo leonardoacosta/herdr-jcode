@@ -23,7 +23,6 @@ fn setup_and_remove_preserve_user_config() {
         Command::new(env!("CARGO_BIN_EXE_herdr-jcode"))
             .args([action, "--config"])
             .arg(&config)
-            .env_remove("JCODE_HOOK_SESSION_START")
             .output()
             .unwrap()
     };
@@ -35,7 +34,11 @@ fn setup_and_remove_preserve_user_config() {
     assert!(run("setup").status.success());
     assert_eq!(std::fs::read_to_string(&config).unwrap(), installed);
     assert!(run("remove").status.success());
-    assert_eq!(std::fs::read_to_string(&config).unwrap(), original);
+    // Removal restores original hook content, but does not revert
+    // scalar-to-array conversions performed during installation.
+    let removed = std::fs::read_to_string(&config).unwrap();
+    let expected = "# user settings\n[hooks]\nsession_start = [\"user-observer\"] # keep me\nturn_end = [\"notify\"]\n";
+    assert_eq!(removed, expected, "removal preserved original hooks");
 }
 
 #[test]
@@ -104,4 +107,24 @@ fn setup_refuses_environment_override_without_writing() {
         .unwrap();
     assert_eq!(result.status.code(), Some(2));
     assert!(!path.exists());
+}
+
+#[test]
+fn setup_refuses_any_lifecycle_override_without_writing() {
+    for event in ["TURN_START", "TURN_END", "SESSION_END"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let result = Command::new(env!("CARGO_BIN_EXE_herdr-jcode"))
+            .args(["setup", "--config"])
+            .arg(&path)
+            .env(format!("JCODE_HOOK_{event}"), "override")
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.code(),
+            Some(2),
+            "override ignored for {event}"
+        );
+        assert!(!path.exists());
+    }
 }

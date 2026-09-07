@@ -9,6 +9,7 @@ use std::{
 };
 
 pub const PLUGIN_ID: &str = "leonardoacosta.herdr-jcode";
+pub const STATE_SOURCE: &str = "custom:leonardoacosta.herdr-jcode";
 const MAX_OUTPUT: usize = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -155,17 +156,112 @@ fn report_with(bin: &str, pane: &str, session: &str, source: &str) -> Result<Val
     )
 }
 
+fn lifecycle(
+    bin: &str,
+    pane: &str,
+    session: &str,
+    event: &str,
+    source: &str,
+    sequence: Option<&str>,
+) -> Result<Value, ()> {
+    let plugins = request(bin, &["plugin", "list", "--plugin", PLUGIN_ID, "--json"])?;
+    if !enabled(&plugins).ok_or(())? {
+        return Ok(json!({"status":"skipped","reason":"disabled_or_unlinked"}));
+    }
+    let current = request(bin, &["pane", "get", pane])?;
+    let current = &current["result"]["pane"];
+    if !current.is_object() {
+        return Err(());
+    }
+    if event != "session_end"
+        && current["agent"]
+            .as_str()
+            .is_some_and(|agent| agent != "jcode")
+    {
+        return Ok(json!({"status":"skipped","reason":"another_agent"}));
+    }
+    let state = match event {
+        "turn_start" => "working",
+        "session_start" if source != "create" && current["agent"] == "jcode" => {
+            match current["agent_status"].as_str() {
+                Some("working") => "working",
+                Some("blocked") => "blocked",
+                _ => "idle",
+            }
+        }
+        _ => "idle",
+    };
+    let release = event == "session_end";
+    let mut args = vec![
+        "pane",
+        if release {
+            "release-agent"
+        } else {
+            "report-agent"
+        },
+        pane,
+        "--source",
+        STATE_SOURCE,
+        "--agent",
+        "jcode",
+    ];
+    if !release {
+        args.extend(["--state", state, "--agent-session-id", session]);
+    }
+    if let Some(seq) = sequence {
+        args.extend(["--seq", seq]);
+    }
+    request(bin, &args)?;
+    let after = request(bin, &["pane", "get", pane])?;
+    let after = &after["result"]["pane"];
+    if !after.is_object() {
+        return Err(());
+    }
+    let mut result = json!({
+        "status": if release {"release_requested"} else if after["agent"] == "jcode" && after["agent_status"] == state {"reported"} else {"not_confirmed"},
+        "event":event,
+        "state":if release {"unknown"} else {state},
+        "observed_state":after["agent_status"],
+        "ordering":if sequence.is_some() {"producer_sequence"} else {"best_effort"}
+    });
+    if event == "session_start" {
+        let native_source = if source == "resume" {
+            "resume"
+        } else {
+            "startup"
+        };
+        result["native_identity"] = report_with(bin, pane, session, native_source)
+            .unwrap_or_else(|_| json!({"status":"unavailable"}));
+    }
+    Ok(result)
+}
+
 pub fn report() -> Value {
     if env::var("HERDR_ENV").as_deref() != Ok("1") {
         return json!({"status":"skipped","reason":"outside_herdr"});
     }
-    if env::var("JCODE_HOOK_EVENT").as_deref() != Ok("session_start") {
+    let event = env::var("JCODE_HOOK_EVENT").unwrap_or_default();
+    if !matches!(
+        event.as_str(),
+        "session_start" | "turn_start" | "turn_end" | "session_end"
+    ) {
         return json!({"status":"skipped","reason":"unsupported_event"});
     }
-    let source = match env::var("JCODE_HOOK_SOURCE").as_deref() {
-        Ok("create" | "attach") => "startup",
-        Ok("resume") => "resume",
-        _ => return json!({"status":"skipped","reason":"unsupported_source"}),
+    let source = env::var("JCODE_HOOK_SOURCE").unwrap_or_default();
+    if event == "session_start" && !matches!(source.as_str(), "create" | "attach" | "resume") {
+        return json!({"status":"skipped","reason":"unsupported_source"});
+    }
+    let sequence = env::var_os("JCODE_HOOK_SEQUENCE");
+    let sequence = match sequence.as_ref().map(|s| s.to_str()) {
+        None => None,
+        Some(Some(s))
+            if !s.is_empty()
+                && s.bytes().all(|c| c.is_ascii_digit())
+                && s.parse::<u64>().is_ok() =>
+        {
+            Some(s)
+        }
+        _ => return json!({"status":"skipped","reason":"invalid_sequence"}),
     };
     let fields = [
         "HERDR_PANE_ID",
@@ -183,7 +279,8 @@ pub fn report() -> Value {
     let Some(bin) = herdr_bin() else {
         return json!({"status":"unavailable"});
     };
-    report_with(&bin, &pane, &session, source).unwrap_or_else(|_| json!({"status":"unavailable"}))
+    lifecycle(&bin, &pane, &session, &event, &source, sequence)
+        .unwrap_or_else(|_| json!({"status":"unavailable"}))
 }
 
 pub fn doctor() -> Value {

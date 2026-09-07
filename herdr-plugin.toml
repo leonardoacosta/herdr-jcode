@@ -2,7 +2,7 @@ id = "leonardoacosta.herdr-jcode"
 name = "Jcode session hooks"
 version = "0.1.0"
 min_herdr_version = "0.8.2"
-description = "Configure Jcode session identity hooks. Native reporting requires a Jcode-capable Herdr build. Includes diagnostics and safe removal."
+description = "Reports Jcode working/idle lifecycle state plus session identity. Independent implementation; no fork dependency."
 platforms = ["linux"]
 
 [[build]]

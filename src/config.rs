@@ -4,6 +4,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use toml_edit::{DocumentMut, Item, Table, Value, value};
 
+pub const EVENTS: [&str; 4] = ["session_start", "turn_start", "turn_end", "session_end"];
+
 pub fn hook_command(executable: &Path) -> Result<String, String> {
     let s = executable.to_str().ok_or("executable path must be UTF-8")?;
     if !executable.is_absolute() || s.contains(['\0', '\n', '\r']) {
@@ -31,60 +33,64 @@ pub fn edit_config(input: &str, command: &str, install: bool) -> Result<String, 
     let hooks = doc["hooks"]
         .as_table_like_mut()
         .ok_or("hooks must be a table")?;
-    let Some(item) = hooks.get_mut("session_start") else {
-        if !install {
-            return Ok(input.into());
-        }
-        hooks.insert("session_start", value(command));
-        return Ok(doc.to_string());
-    };
-    let remove_key = match item
-        .as_value_mut()
-        .ok_or("session_start must be a string or array")?
-    {
-        Value::String(s) => {
-            if s.value() == command {
-                if install {
-                    return Ok(input.into());
+    for event in EVENTS {
+        if let Some(item) = hooks.get(event) {
+            match item.as_value() {
+                Some(Value::String(_)) => {}
+                Some(Value::Array(array)) if array.iter().all(|v| v.is_str()) => {}
+                Some(Value::Array(_)) => {
+                    return Err(format!("{event} array must contain only strings"));
                 }
-                true
-            } else {
-                if !install {
-                    return Ok(input.into());
-                }
-                let decor = s.decor().clone();
-                let mut old = Value::String(s.clone());
-                *old.decor_mut() = Default::default();
-                let mut array = toml_edit::Array::new();
-                array.push_formatted(old);
-                array.push(command);
-                *array.decor_mut() = decor;
-                *item = value(array);
-                false
+                _ => return Err(format!("{event} must be a string or array")),
             }
         }
-        Value::Array(array) => {
-            if array.iter().any(|v| !v.is_str()) {
-                return Err("session_start array must contain only strings".into());
-            }
-            let present = array.iter().any(|v| v.as_str() == Some(command));
+    }
+    for event in EVENTS {
+        let Some(item) = hooks.get_mut(event) else {
             if install {
-                if present {
-                    return Ok(input.into());
-                }
-                array.push(command);
-            } else {
-                if !present {
-                    return Ok(input.into());
-                }
-                array.retain(|v| v.as_str() != Some(command));
+                hooks.insert(event, value(command));
             }
-            array.is_empty()
+            continue;
+        };
+        let remove_key = match item.as_value_mut().expect("validated hook value") {
+            Value::String(s) => {
+                if s.value() == command {
+                    !install
+                } else {
+                    if !install {
+                        false
+                    } else {
+                        let decor = s.decor().clone();
+                        let mut old = Value::String(s.clone());
+                        *old.decor_mut() = Default::default();
+                        let mut array = toml_edit::Array::new();
+                        array.push_formatted(old);
+                        array.push(command);
+                        *array.decor_mut() = decor;
+                        *item = value(array);
+                        false
+                    }
+                }
+            }
+            Value::Array(array) => {
+                let present = array.iter().any(|v| v.as_str() == Some(command));
+                if install {
+                    if !present {
+                        array.push(command);
+                    }
+                    false
+                } else {
+                    if present {
+                        array.retain(|v| v.as_str() != Some(command));
+                    }
+                    array.is_empty()
+                }
+            }
+            _ => unreachable!("validated hook value"),
+        };
+        if remove_key {
+            hooks.remove(event);
         }
-        _ => return Err("session_start must be a string or array".into()),
-    };
-    if remove_key {
-        hooks.remove("session_start");
     }
     Ok(doc.to_string())
 }
@@ -204,10 +210,11 @@ mod tests {
     use super::*;
     #[test]
     fn install_absent() {
-        assert_eq!(
-            edit_config("name = \"x\"\n", "run", true).unwrap(),
-            "name = \"x\"\n\n[hooks]\nsession_start = \"run\"\n"
-        );
+        let out = edit_config("name = \"x\"\n", "run", true).unwrap();
+        let doc = out.parse::<DocumentMut>().unwrap();
+        for event in EVENTS {
+            assert_eq!(doc["hooks"][event].as_str(), Some("run"));
+        }
     }
     #[test]
     fn preserves_array_and_removes_exact() {
@@ -218,7 +225,60 @@ mod tests {
     }
     #[test]
     fn rejects_types() {
-        assert!(edit_config("[hooks]\nsession_start = 1\n", "x", true).is_err());
+        assert!(edit_config("[hooks]\nturn_end = 1\n", "x", true).is_err());
+    }
+    #[test]
+    fn events_are_public_and_all_lifecycle_hooks_are_updated() {
+        assert_eq!(
+            EVENTS,
+            ["session_start", "turn_start", "turn_end", "session_end"]
+        );
+        let out = edit_config(
+            "[hooks]\nsession_start = [\"user\"]\nturn_end = \"notify\"\n",
+            "x",
+            true,
+        )
+        .unwrap();
+        let doc = out.parse::<DocumentMut>().unwrap();
+        for event in EVENTS {
+            assert!(
+                doc["hooks"][event]
+                    .as_value()
+                    .and_then(|value| match value {
+                        Value::String(s) => Some(s.value() == "x"),
+                        Value::Array(array) => Some(array.iter().any(|v| v.as_str() == Some("x"))),
+                        _ => None,
+                    })
+                    .unwrap()
+            );
+        }
+        assert_eq!(
+            doc["hooks"]["session_start"]
+                .as_array()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .as_str(),
+            Some("user")
+        );
+        assert_eq!(
+            doc["hooks"]["turn_end"]
+                .as_array()
+                .unwrap()
+                .get(0)
+                .unwrap()
+                .as_str(),
+            Some("notify")
+        );
+    }
+    #[test]
+    fn malformed_any_event_is_rejected_before_mutation() {
+        let input = "[hooks]\nsession_start = [\"old\"]\nturn_start = 1\n";
+        assert!(edit_config(input, "x", false).is_err());
+        assert_eq!(
+            edit_config(input, "x", false).unwrap_err(),
+            "turn_start must be a string or array"
+        );
     }
     #[test]
     fn update_atomic() {
@@ -244,7 +304,12 @@ mod tests {
     #[test]
     fn scalar_inline_comment_survives_install_noop() {
         let s = "[hooks]\nsession_start = \"x\" # keep\n";
-        assert_eq!(edit_config(s, "x", true).unwrap(), s);
+        let out = edit_config(s, "x", true).unwrap();
+        let doc = out.parse::<DocumentMut>().unwrap();
+        for event in EVENTS {
+            assert_eq!(doc["hooks"][event].as_str(), Some("x"));
+        }
+        assert!(out.contains("# keep"));
     }
     #[test]
     fn quotes_spaces_and_apostrophes() {

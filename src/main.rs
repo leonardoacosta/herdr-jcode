@@ -2,11 +2,21 @@ use herdr_jcode::config;
 use serde_json::json;
 use std::{env, path::PathBuf, process::ExitCode};
 
+fn lifecycle_override_active() -> Option<String> {
+    for event in config::EVENTS {
+        let var = format!("JCODE_HOOK_{}", event.to_uppercase());
+        if env::var_os(&var).is_some() {
+            return Some(var);
+        }
+    }
+    None
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] || args == ["help"] {
         println!(
-            "herdr-jcode: setup | remove | doctor | report\nsetup/remove accept --config PATH. Otherwise use $JCODE_HOME/config.toml or ~/.jcode/config.toml.\nSession identity only. Native Jcode support in Herdr is required for restore."
+            "herdr-jcode: setup | remove | doctor | report\nsetup/remove accept --config PATH. Otherwise use $JCODE_HOME/config.toml or ~/.jcode/config.toml.\nInstalls session_start, turn_start, turn_end, and session_end hooks.\nNative Jcode detection is separate from lifecycle reporting."
         );
         return Ok(());
     }
@@ -39,8 +49,12 @@ fn run() -> Result<(), String> {
         [_, option, path] if option == "--config" => PathBuf::from(path),
         _ => return Err("expected setup/remove [--config PATH]".into()),
     };
-    if action == "setup" && env::var_os("JCODE_HOOK_SESSION_START").is_some() {
-        return Err("JCODE_HOOK_SESSION_START overrides config. Unset it before setup and in Jcode's launch environment.".into());
+    if action == "setup" {
+        if let Some(override_var) = lifecycle_override_active() {
+            return Err(format!(
+                "{override_var} overrides config. Unset it before setup and in Jcode's launch environment."
+            ));
+        }
     }
     let command = config::hook_command(&env::current_exe().map_err(|e| e.to_string())?)?;
     let changed = config::update(&path, &command, action == "setup")?;

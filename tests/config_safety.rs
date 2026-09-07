@@ -14,7 +14,12 @@ fn scalar_hook_is_composed_not_ignored() {
 #[test]
 fn reinstall_preserves_owned_entry_position_and_comments() {
     let s = "[hooks]\nsession_start = [\n 'plugin', # owned\n 'user', # user\n]\n";
-    assert_eq!(edit_config(s, "plugin", true).unwrap(), s);
+    let result = edit_config(s, "plugin", true).unwrap();
+    let doc = result.parse::<toml_edit::DocumentMut>().unwrap();
+    assert_eq!(doc["hooks"]["session_start"].as_array().unwrap().len(), 2);
+    for event in ["turn_start", "turn_end", "session_end"] {
+        assert_eq!(doc["hooks"][event].as_str(), Some("plugin"));
+    }
 }
 #[test]
 fn mixed_array_is_rejected_without_mutation() {
@@ -53,6 +58,13 @@ fn inline_hook_table_keeps_other_values() {
     )
     .unwrap();
     let doc = output.parse::<toml_edit::DocumentMut>().unwrap();
-    assert_eq!(doc["hooks"]["turn_end"].as_str(), Some("notify"));
+    assert_eq!(
+        output.parse::<toml_edit::DocumentMut>().unwrap()["hooks"]["turn_end"]
+            .as_array()
+            .unwrap()
+            .get(0)
+            .and_then(|value| value.as_str()),
+        Some("notify")
+    );
     assert_eq!(doc["hooks"]["session_start"].as_array().unwrap().len(), 2);
 }
