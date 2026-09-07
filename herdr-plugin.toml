@@ -1,0 +1,27 @@
+id = "leonardoacosta.herdr-jcode"
+name = "Jcode session hooks"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Configure Jcode session identity hooks. Native reporting requires a Jcode-capable Herdr build. Includes diagnostics and safe removal."
+platforms = ["linux"]
+
+[[build]]
+command = ["cargo", "build", "--release", "--locked"]
+
+[[actions]]
+id = "setup"
+title = "Configure Jcode session hook"
+description = "Append this plugin to Jcode session_start hooks. Run diagnostics separately to check native host support."
+command = ["./target/release/herdr-jcode", "setup"]
+
+[[actions]]
+id = "doctor"
+title = "Diagnose Jcode integration"
+description = "Check Herdr native Jcode detection and plugin registration. Does not alter configuration."
+command = ["./target/release/herdr-jcode", "doctor"]
+
+[[actions]]
+id = "remove"
+title = "Remove Jcode session hook"
+description = "Remove only this plugin's hook before uninstalling the plugin."
+command = ["./target/release/herdr-jcode", "remove"]
