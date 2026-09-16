@@ -1,12 +1,18 @@
 id = "leonardoacosta.herdr-jcode"
 name = "Jcode session hooks"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.8.2"
 description = "Reports Jcode working/idle lifecycle state plus session identity. Independent implementation; no fork dependency."
 platforms = ["linux"]
 
 [[build]]
 command = ["cargo", "build", "--release", "--locked"]
+
+[[actions]]
+id = "help"
+title = "Usage reference"
+description = "Show available commands and options."
+command = ["./target/release/herdr-jcode", "help"]
 
 [[actions]]
 id = "setup"

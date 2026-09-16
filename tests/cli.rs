@@ -55,8 +55,8 @@ fn marketplace_manifest_has_explicit_safe_actions() {
         "must not silently configure Jcode at startup"
     );
     let actions = doc["actions"].as_array_of_tables().unwrap();
-    assert_eq!(actions.len(), 3);
-    for id in ["setup", "remove", "doctor"] {
+    assert_eq!(actions.len(), 4);
+    for id in ["setup", "remove", "doctor", "help"] {
         let action = actions
             .iter()
             .find(|a| a["id"].as_str() == Some(id))
