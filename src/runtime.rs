@@ -304,6 +304,66 @@ pub fn doctor() -> Value {
         "native_restore_verified":false, "ordering":"best_effort_first_identity; replacements require explicit resolution"})
 }
 
+const MODEL_SOURCE: &str = "herdr:jcode:model";
+
+/// Derive a short model name from JCODE_HOOK_MODEL.
+/// Strips version/date suffixes. Falls back to the raw model string.
+fn model_short_name(model: &str) -> String {
+    // Common patterns: "claude-4-opus-20250219" -> "claude-4-opus"
+    // "deepseek-chat", "gpt-5.1" stay unchanged.
+    let trimmed = model.trim();
+    let parts: Vec<&str> = trimmed.split('-').collect();
+    if parts.len() >= 4 && parts.last().map_or(false, |s| s.len() >= 6 && s.bytes().all(|b| b.is_ascii_digit())) {
+        parts[..parts.len() - 1].join("-")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub fn report_model() -> Value {
+    if env::var("HERDR_ENV").as_deref() != Ok("1") {
+        return json!({"status":"skipped","reason":"outside_herdr"});
+    }
+    let model = env::var("JCODE_HOOK_MODEL").unwrap_or_default();
+    if model.is_empty() {
+        return json!({"status":"skipped","reason":"no_model_info"});
+    }
+    let pane = env::var("HERDR_PANE_ID")
+        .ok()
+        .filter(|s| !s.is_empty() && s.len() <= 4096 && !s.contains('\0'));
+    let Some(pane) = pane else {
+        return json!({"status":"skipped","reason":"missing_pane_id"});
+    };
+    let Some(bin) = herdr_bin() else {
+        return json!({"status":"unavailable"});
+    };
+
+    let plugins = request(&bin, &["plugin", "list", "--plugin", PLUGIN_ID, "--json"]);
+    if !plugins.ok().and_then(|v| enabled(&v)).unwrap_or(false) {
+        return json!({"status":"skipped","reason":"disabled_or_unlinked"});
+    }
+
+    let short = model_short_name(&model);
+    // Publish display-only metadata with a dedicated source.
+    // report-metadata returns no stdout on success; use command() which checks exit code.
+    let result = command(
+        &bin,
+        &[
+            "pane",
+            "report-metadata",
+            &pane,
+            "--source",
+            MODEL_SOURCE,
+            "--token",
+            &format!("model={}", short),
+        ],
+    );
+    match result {
+        Ok(_) => json!({"status":"reported","model":short}),
+        Err(_) => json!({"status":"unavailable"}),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

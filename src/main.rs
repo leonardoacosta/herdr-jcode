@@ -16,13 +16,17 @@ fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] || args == ["help"] {
         println!(
-            "herdr-jcode: setup | remove | doctor | report\nsetup/remove accept --config PATH. Otherwise use $JCODE_HOME/config.toml or ~/.jcode/config.toml.\nInstalls session_start, turn_start, turn_end, and session_end hooks.\nNative Jcode detection is separate from lifecycle reporting."
+            "herdr-jcode: setup | remove | doctor | report | model\nsetup/remove accept --config PATH. Otherwise use $JCODE_HOME/config.toml or ~/.jcode/config.toml.\nreport — lifecycle state. model — model metadata display tokens.\nInstalls session_start, turn_start, turn_end, and session_end hooks."
         );
         return Ok(());
     }
     let action = &args[0];
     if args == ["report"] {
         println!("{}", herdr_jcode::runtime::report());
+        return Ok(());
+    }
+    if args == ["model"] {
+        println!("{}", herdr_jcode::runtime::report_model());
         return Ok(());
     }
     if args == ["doctor"] {
@@ -58,6 +62,21 @@ fn run() -> Result<(), String> {
     }
     let command = config::hook_command(&env::current_exe().map_err(|e| e.to_string())?)?;
     let changed = config::update(&path, &command, action == "setup")?;
+    // Also add model hook to turn_end only
+    if action == "setup" {
+        let model_command = config::hook_command(&env::current_exe().map_err(|e| e.to_string())?)?.replace(" report", " model");
+        let _ = config::update_turn_end(&path, &model_command);
+    }
+    if action == "remove" {
+        let model_command = config::hook_command(&env::current_exe().map_err(|e| e.to_string())?)?.replace(" report", " model");
+        let _ = config::edit_turn_end(
+            &std::fs::read_to_string(&path).unwrap_or_default(),
+            &model_command,
+            false,
+        ).ok().and_then(|output| {
+            std::fs::write(&path, &output).ok()
+        });
+    }
     println!(
         "{}",
         json!({"status": if action == "setup" {"configured"} else {"removed"}, "changed":changed, "config":path, "native_restore_verified":false})

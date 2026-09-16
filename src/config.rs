@@ -182,6 +182,119 @@ pub fn update(path: &Path, command: &str, install: bool) -> Result<bool, String>
     Ok(true)
 }
 
+/// Like edit_config but only touches the turn_end key.
+pub fn edit_turn_end(input: &str, command: &str, install: bool) -> Result<String, String> {
+    if command.is_empty() {
+        return Err("command is empty".into());
+    }
+    let mut doc = input
+        .parse::<DocumentMut>()
+        .map_err(|e| format!("invalid TOML: {e}"))?;
+    if doc.get("hooks").is_none() {
+        if !install {
+            return Ok(input.into());
+        }
+        doc["hooks"] = Item::Table(Table::new());
+    }
+    let hooks = doc["hooks"]
+        .as_table_like_mut()
+        .ok_or("hooks must be a table")?;
+
+    // Validate existing value type compatibility
+    if let Some(item) = hooks.get("turn_end") {
+        match item.as_value() {
+            Some(Value::String(_)) => {}
+            Some(Value::Array(array)) if array.iter().all(|v| v.is_str()) => {}
+            Some(Value::Array(_)) => {
+                return Err("turn_end array must contain only strings".into());
+            }
+            _ => return Err("turn_end must be a string or array".into()),
+        }
+    }
+
+    let Some(item) = hooks.get_mut("turn_end") else {
+        if install {
+            hooks.insert("turn_end", value(command));
+        }
+        return Ok(doc.to_string());
+    };
+    let remove_key = match item.as_value_mut().expect("validated turn_end value") {
+        Value::String(s) => {
+            if s.value() == command {
+                !install
+            } else {
+                if !install {
+                    false
+                } else {
+                    let decor = s.decor().clone();
+                    let mut old = Value::String(s.clone());
+                    *old.decor_mut() = Default::default();
+                    let mut array = toml_edit::Array::new();
+                    array.push_formatted(old);
+                    array.push(command);
+                    *array.decor_mut() = decor;
+                    *item = value(array);
+                    false
+                }
+            }
+        }
+        Value::Array(array) => {
+            let present = array.iter().any(|v| v.as_str() == Some(command));
+            if install {
+                if !present {
+                    array.push(command);
+                }
+                false
+            } else {
+                if present {
+                    array.retain(|v| v.as_str() != Some(command));
+                }
+                array.is_empty()
+            }
+        }
+        _ => unreachable!("validated turn_end value"),
+    };
+    if remove_key {
+        hooks.remove("turn_end");
+    }
+    Ok(doc.to_string())
+}
+
+pub fn update_turn_end(path: &Path, command: &str) -> Result<bool, String> {
+    let path = std::path::absolute(path).map_err(|e| e.to_string())?;
+    let initial = snapshot(&path)?;
+    let Some((_, data)) = &initial else {
+        return Ok(false);
+    };
+    let input = std::str::from_utf8(data)
+        .map_err(|_| "config must be UTF-8")?;
+    let output = edit_turn_end(input, command, true)?;
+    if output == input {
+        return Ok(false);
+    }
+    let parent = path.parent().ok_or("config needs a parent directory")?;
+    let _lock = LockGuard::acquire(&lock_path(&path))?;
+    unchanged(&path, &Some((initial.as_ref().unwrap().0.clone(), initial.as_ref().unwrap().1.clone())))?;
+    let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    temp.write_all(output.as_bytes())
+        .map_err(|e| e.to_string())?;
+    if let Some((meta, _)) = &initial {
+        let temp_meta = temp.as_file().metadata().map_err(|e| e.to_string())?;
+        if temp_meta.uid() != meta.uid() || temp_meta.gid() != meta.gid() {
+            return Err("cannot preserve config ownership".into());
+        }
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(meta.mode()))
+            .map_err(|e| e.to_string())?;
+    }
+    temp.as_file().sync_all().map_err(|e| e.to_string())?;
+    temp.persist(&path).map_err(|e| e.to_string())?;
+    File::open(parent)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 fn lock_path(path: &Path) -> PathBuf {
     path.with_extension("toml.lock")
 }

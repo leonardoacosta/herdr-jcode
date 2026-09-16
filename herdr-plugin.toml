@@ -9,6 +9,12 @@ platforms = ["linux"]
 command = ["cargo", "build", "--release", "--locked"]
 
 [[actions]]
+id = "model"
+title = "Report model metadata"
+description = "Publish model short name as display metadata token (herdr:jcode:model source)."
+command = ["./target/release/herdr-jcode", "model"]
+
+[[actions]]
 id = "help"
 title = "Usage reference"
 description = "Show available commands and options."
