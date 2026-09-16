@@ -38,3 +38,22 @@ The catalog's MIT labels are evidence of its claim, not proof of underlying trad
 Alternatives: text-only model names need no font installation and are the safest first version; raster/SVG terminal graphics are a separate rendering path, not an inline sidebar glyph replacement.
 
 No fonts, plugin runtime code, or user configuration changed during this research. Proposed follow-up: approve exact asset retrieval, audit XML, then test isolated glyph conversion and render at the actual terminal cell size before any installation.
+
+## Approved WebFetch follow-up
+
+The user approved WebFetch for the six exact SVG assets. On 2026-09-16, text extraction produced empty output, then `format=html` returned the complete SVG markup for all six. The empty text result was not evidence of an empty asset.
+
+| Asset | Retrieved structure | Preparation and risk |
+| --- | --- | --- |
+| Claude Code mono | 382 bytes, 24×24 viewBox, one compound path, currentColor, evenodd fill | Remove title element for current builder. Preserve eye cutouts. Simple pixel-like silhouette, a promising small-cell candidate. |
+| OpenAI mono | 1,642 bytes, 24×24, one compound path, currentColor, evenodd fill | Remove title. Preserve knot holes and narrow gaps. Check contour winding and small-cell legibility. |
+| DeepSeek default | 2,126 bytes, 24×24, one compound path, solid #4D6BFE | Geometry is already single-color. Font drops fill color; Herdr can supply foreground color. Fine internal details may disappear at small sizes. |
+| Kimi default | 957 bytes, 512×512, three paths: black rounded background, blue accent, white foreground | Do not concatenate all paths into a single-color glyph unchanged. Prefer removing the background and combining the foreground mark/accent, or explicitly subtract foreground shapes for a badge. Source color layering is significant. |
+| Qwen default | 1,783 bytes, 24×24, one compound path, #ffff fill, evenodd fill | Remove title. Already single-color geometry. Preserve interior cutouts and test thin gaps. |
+| GLM-V mono | 3,532 bytes, 24×24, five paths, currentColor, evenodd fill | Remove title. Dense multi-path artwork has the highest small-cell detail risk. Identity remains GLM-V, not a verified GLM-5 mark. |
+
+No retrieved asset contains image, script, external href, gradient, mask, clipPath, or filter elements. The clip-rule attribute on Claude is not a clipPath dependency. Kimi declares stroke-linejoin and stroke-miterlimit but does not define a painted stroke. All actual artwork consists of path elements.
+
+The existing `tools/build_font.py:svg_glyph` rejects any child element other than path, including harmless title nodes. Thus four assets (Claude Code, OpenAI, Qwen, GLM-V) need metadata stripping before that function accepts them. The builder feeds outlines into a TrueType pen without color compositing or explicit evenodd-to-nonzero conversion. Reversing all contours does not by itself fix incompatible hole winding. Outline normalization and rendered comparison are therefore acceptance checks, not optional cleanup.
+
+Conclusion: all six are structurally convertible SVG artwork. Five have directly usable monochrome geometry after light preparation and winding validation. Kimi needs a deliberate monochrome adaptation. This is XML/source inspection, not proof that a built font renders correctly. No fonts were built or installed. Recommended first implementation set is OpenAI, Claude-family mark selected deliberately, DeepSeek, Qwen, and adapted Kimi, with text-only GLM-5 until its intended mark is agreed.
