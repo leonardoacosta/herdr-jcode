@@ -2,15 +2,15 @@
 # Each entry maps a normalized model sub-string (matched case-insensitively)
 # to a provider glyph identifier.
 #
-# Provider identifiers correspond to approved glyph names in the herdr-sidebar
-# icon font: claude-code, openai-gpt, kimi, qwen, deepseek, glm-v
+# Provider identifiers correspond to approved glyph names in HerdrAgentIconsMax
+# icon font: claude, gpt, kimi, qwen, deepseek, glm-v
 
 [mapping]
-"opus" = "claude-code"
-"sonnet" = "claude-code"
-"haiku" = "claude-code"
-"fabel" = "claude-code"
-"gpt" = "openai-gpt"
+"opus" = "claude"
+"sonnet" = "claude"
+"haiku" = "claude"
+"fabel" = "claude"
+"gpt" = "gpt"
 "kimi" = "kimi"
 "qwen" = "qwen"
 "deepseek" = "deepseek"
