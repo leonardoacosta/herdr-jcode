@@ -55,13 +55,16 @@ fn marketplace_manifest_has_explicit_safe_actions() {
         "must not silently configure Jcode at startup"
     );
     let actions = doc["actions"].as_array_of_tables().unwrap();
-    assert_eq!(actions.len(), 5);
-    for id in ["model", "setup", "remove", "doctor", "help"] {
+    assert_eq!(actions.len(), 6);
+    for id in ["model", "model-setup", "setup", "remove", "doctor", "help"] {
         let action = actions
             .iter()
             .find(|a| a["id"].as_str() == Some(id))
             .unwrap();
-        assert_eq!(action["command"][1].as_str(), Some(id));
+        // model-setup uses sh -c, not a herdr-jcode subcommand
+        if id != "model-setup" {
+            assert_eq!(action["command"][1].as_str(), Some(id));
+        }
     }
 }
 

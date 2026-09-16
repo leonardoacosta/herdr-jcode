@@ -344,22 +344,27 @@ pub fn report_model() -> Value {
     }
 
     let short = model_short_name(&model);
+    let provider = crate::config::provider_for_model(&model);
+
     // Publish display-only metadata with a dedicated source.
     // report-metadata returns no stdout on success; use command() which checks exit code.
-    let result = command(
-        &bin,
-        &[
-            "pane",
-            "report-metadata",
-            &pane,
-            "--source",
-            MODEL_SOURCE,
-            "--token",
-            &format!("model={}", short),
-        ],
-    );
+    let mut args: Vec<String> = vec![
+        "pane".into(),
+        "report-metadata".into(),
+        pane.clone(),
+        "--source".into(),
+        MODEL_SOURCE.into(),
+        "--token".into(),
+        format!("model={}", short),
+    ];
+    if let Some(ref provider_id) = provider {
+        args.push("--token".into());
+        args.push(format!("provider={}", provider_id));
+    }
+    let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let result = command(&bin, &args_refs);
     match result {
-        Ok(_) => json!({"status":"reported","model":short}),
+        Ok(_) => json!({"status":"reported","model":short,"provider":provider}),
         Err(_) => json!({"status":"unavailable"}),
     }
 }

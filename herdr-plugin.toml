@@ -15,6 +15,12 @@ description = "Publish model short name as display metadata token (herdr:jcode:m
 command = ["./target/release/herdr-jcode", "model"]
 
 [[actions]]
+id = "model-setup"
+title = "Install model provider mapping"
+description = "Copy model-mapping.toml to the plugin config directory."
+command = ["sh", "-c", "cp -n \"$HERDR_PLUGIN_ROOT/model-mapping.toml\" \"$HERDR_PLUGIN_CONFIG_DIR/model-mapping.toml\" 2>/dev/null; echo '{\"status\":\"installed\",\"path\":\"'\"$HERDR_PLUGIN_CONFIG_DIR\"'/model-mapping.toml\"}'"]
+
+[[actions]]
 id = "help"
 title = "Usage reference"
 description = "Show available commands and options."

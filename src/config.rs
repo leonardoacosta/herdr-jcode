@@ -6,6 +6,26 @@ use toml_edit::{DocumentMut, Item, Table, Value, value};
 
 pub const EVENTS: [&str; 4] = ["session_start", "turn_start", "turn_end", "session_end"];
 
+/// Look up a provider glyph ID by matching sub-strings in the normalized model name.
+/// The mapping file lives at HERDR_PLUGIN_CONFIG_DIR/model-mapping.toml.
+/// Case-insensitive partial match against each key; first match wins.
+pub fn provider_for_model(model: &str) -> Option<String> {
+    let config_dir = std::env::var("HERDR_PLUGIN_CONFIG_DIR")
+        .ok()
+        .filter(|s| !s.is_empty() && !s.contains('\0') && s.len() <= 4096)?;
+    let path = PathBuf::from(config_dir).join("model-mapping.toml");
+    let data = std::fs::read_to_string(&path).ok()?;
+    let doc: toml_edit::DocumentMut = data.parse().ok()?;
+    let mapping = doc.get("mapping")?.as_table()?;
+    let lower = model.to_lowercase();
+    for (key, value) in mapping.iter() {
+        if lower.contains(key) {
+            return value.as_str().map(|s| s.to_string());
+        }
+    }
+    None
+}
+
 pub fn hook_command(executable: &Path) -> Result<String, String> {
     let s = executable.to_str().ok_or("executable path must be UTF-8")?;
     if !executable.is_absolute() || s.contains(['\0', '\n', '\r']) {
